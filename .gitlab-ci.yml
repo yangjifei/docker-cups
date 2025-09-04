@@ -1,0 +1,83 @@
+image: docker:stable
+services:
+  - docker:dind
+
+stages:
+  - build
+  - release
+
+before_script:
+  - docker login -u ${CI_REGISTRY_USER} -p ${CI_REGISTRY_PASSWORD} ${CI_REGISTRY}
+  - docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+  - export DOCKER_BUILD_ARGS="--build-arg BUILD_DATE=`date -u +"%Y-%m-%dT%H:%M:%SZ"` --build-arg VCS_REF=$CI_COMMIT_SHORT_SHA"
+
+build-amd64:
+  stage: build
+  script:
+    - docker build --build-arg ARCH=amd64 $DOCKER_BUILD_ARGS -t ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-amd64 .
+    - docker push ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-amd64
+
+build-arm32v7:
+  stage: build
+  script:
+    - docker build --build-arg ARCH=arm32v7 $DOCKER_BUILD_ARGS -t ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-arm32v7 .
+    - docker push ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-arm32v7
+
+build-arm64v8:
+  stage: build
+  script:
+    - docker build --build-arg ARCH=arm64v8 $DOCKER_BUILD_ARGS -t ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-arm64v8 .
+    - docker push ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-arm64v8
+
+release:
+  stage: release
+  before_script:
+    - mkdir -p /root/.docker || true
+    - echo '{"experimental":"enabled"}' > /root/.docker/config.json
+    - docker login -u ${CI_REGISTRY_USER} -p ${CI_REGISTRY_PASSWORD} ${CI_REGISTRY}
+  script:
+    - docker pull ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-amd64
+    - docker tag ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-amd64 ${CI_REGISTRY_IMAGE}:latest-amd64
+    - docker push ${CI_REGISTRY_IMAGE}:latest-amd64
+    - docker pull ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-arm32v7
+    - docker tag ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-arm32v7 ${CI_REGISTRY_IMAGE}:latest-arm32v7
+    - docker push ${CI_REGISTRY_IMAGE}:latest-arm32v7
+    - docker pull ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-arm64v8
+    - docker tag ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-arm64v8 ${CI_REGISTRY_IMAGE}:latest-arm64v8
+    - docker push ${CI_REGISTRY_IMAGE}:latest-arm64v8
+    - docker manifest create ${CI_REGISTRY_IMAGE}:latest ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-amd64 ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-arm32v7 ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-arm64v8
+    - docker manifest annotate --os linux --arch amd64 ${CI_REGISTRY_IMAGE}:latest ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-amd64
+    - docker manifest annotate --os linux --arch arm --variant v7 ${CI_REGISTRY_IMAGE}:latest ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-arm32v7
+    - docker manifest annotate --os linux --arch arm64 --variant v8 ${CI_REGISTRY_IMAGE}:latest ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-arm64v8
+    - docker manifest push ${CI_REGISTRY_IMAGE}:latest
+  only:
+    - master
+    - tags
+    - schedules
+
+dockerhub:
+  stage: release
+  before_script:
+    - mkdir -p /root/.docker || true
+    - echo '{"experimental":"enabled"}' > /root/.docker/config.json
+    - docker login -u ${CI_REGISTRY_USER} -p ${CI_REGISTRY_PASSWORD} ${CI_REGISTRY}
+    - docker login -u ${DOCKERHUB_USER} -p ${DOCKERHUB_PASSWORD} ${DOCKERHUB_REGISTRY}
+  script:
+    - docker pull ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-amd64
+    - docker tag ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-amd64 ${DOCKERHUB_IMAGE}:latest-amd64
+    - docker push ${DOCKERHUB_IMAGE}:latest-amd64
+    - docker pull ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-arm32v7
+    - docker tag ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-arm32v7 ${DOCKERHUB_IMAGE}:latest-arm32v7
+    - docker push ${DOCKERHUB_IMAGE}:latest-arm32v7
+    - docker pull ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-arm64v8
+    - docker tag ${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}-arm64v8 ${DOCKERHUB_IMAGE}:latest-arm64v8
+    - docker push ${DOCKERHUB_IMAGE}:latest-arm64v8
+    - docker manifest create ${DOCKERHUB_IMAGE}:latest ${DOCKERHUB_IMAGE}:latest-amd64 ${DOCKERHUB_IMAGE}:latest-arm32v7 ${DOCKERHUB_IMAGE}:latest-arm64v8
+    - docker manifest annotate --os linux --arch amd64 ${DOCKERHUB_IMAGE}:latest ${DOCKERHUB_IMAGE}:latest-amd64
+    - docker manifest annotate --os linux --arch arm --variant v7 ${DOCKERHUB_IMAGE}:latest ${DOCKERHUB_IMAGE}:latest-arm32v7
+    - docker manifest annotate --os linux --arch arm64 --variant v8 ${DOCKERHUB_IMAGE}:latest ${DOCKERHUB_IMAGE}:latest-arm64v8
+    - docker manifest push ${DOCKERHUB_IMAGE}:latest
+  only:
+    - master
+    - tags
+    - schedules
