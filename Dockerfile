@@ -2,23 +2,17 @@
 ARG ARCH=amd64
 FROM $ARCH/debian:buster-slim
 
-# args
-ARG VCS_REF
-ARG BUILD_DATE
-
 # environment
 ENV ADMIN_PASSWORD=admin
 
 # labels
-LABEL maintainer="Florian Schwab <me@ydkn.io>" \
+LABEL maintainer="YangJfei" \
   org.label-schema.schema-version="1.0" \
-  org.label-schema.name="ydkn/cups" \
+  org.label-schema.name="yangjifei/cups-qnap-hplip-plugin" \
   org.label-schema.description="Simple CUPS docker image" \
   org.label-schema.version="0.1" \
-  org.label-schema.url="https://hub.docker.com/r/ydkn/cups" \
-  org.label-schema.vcs-url="https://gitlab.com/ydkn/docker-cups" \
-  org.label-schema.vcs-ref=$VCS_REF \
-  org.label-schema.build-date=$BUILD_DATE
+  org.label-schema.url="https://hub.docker.com/r/yangjifei/cups-qnap-hplip-plugin" \
+  org.label-schema.vcs-url="https://gitlab.com/yangjifei/docker-cups-qnap-hplip-plugin"
 
 # install packages
 RUN apt-get update \
@@ -54,6 +48,17 @@ RUN /usr/sbin/cupsd \
 
 # copy /etc/cups for skeleton usage
 RUN cp -rp /etc/cups /etc/cups-skel
+
+# add hplip plugin installer
+COPY hplip-3.21.12-plugin.run /opt/hplip-3.21.12-plugin.run
+
+RUN echo '#!/bin/bash\n\
+set -e\n\
+rm -f /var/hp-plugin.lock\n\
+echo "Running hp-plugin installer..."\n\
+hp-plugin -i -p /opt/hplip-3.21.12-plugin.run\n\
+echo "HP Plugin installation completed."\n' > /usr/local/bin/install-hp-plugin.sh && \
+    chmod +x /usr/local/bin/install-hp-plugin.sh
 
 # entrypoint
 ADD docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
